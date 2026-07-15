@@ -26,7 +26,8 @@ defmodule Mace.Store do
     |> Keyword.new()
     |> Enum.map(fn {k, v} -> put(app, k, v) end)
   rescue
-    Protocol.UndefinedError -> raise ArgumentError, "expected a keyword list, got: #{inspect(kvlist)}"
+    Protocol.UndefinedError ->
+      raise ArgumentError, "expected a keyword list, got: #{inspect(kvlist)}"
   end
 
   @doc """

@@ -21,7 +21,10 @@ defmodule Mace.Diff do
   def compute(snapshot, overrides) do
     Enum.reduce(overrides, %{}, fn {key, override_val}, acc ->
       default_val = Map.get(snapshot, key, :__not_set__)
-      if default_val != override_val, do: Map.put(acc, key, {default_val, override_val}), else: acc
+
+      if default_val != override_val,
+        do: Map.put(acc, key, {default_val, override_val}),
+        else: acc
     end)
   end
 
