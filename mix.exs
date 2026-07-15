@@ -32,7 +32,6 @@ defmodule Mace.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/fivetro/test_config"},
       source_url: "https://github.com/pmonson711/mace"
     ]
   end
