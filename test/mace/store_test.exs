@@ -66,4 +66,204 @@ defmodule Mace.StoreTest do
       assert Mace.Store.fetch(self(), :my_app, :timeout) == {:ok, 100}
     end
   end
+
+  describe "delete/2 and delete/3" do
+    test "deletes a specific key from the pid's config" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      Mace.Store.put(:my_app, :debug, true)
+
+      Mace.Store.delete(self(), :my_app, :timeout)
+
+      assert Mace.Store.fetch(self(), :my_app, :timeout) == {:ok, nil}
+      assert Mace.Store.fetch(self(), :my_app, :debug) == {:ok, true}
+    end
+
+    test "sets key to tombstone, fetch returns nil" do
+      Mace.Store.put(:my_app, :timeout, 100)
+
+      Mace.Store.delete(self(), :my_app, :timeout)
+
+      assert Mace.Store.fetch(self(), :my_app, :timeout) == {:ok, nil}
+    end
+
+    test "preserves other app entries" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      Mace.Store.put(:other_app, :key, "val")
+
+      Mace.Store.delete(self(), :my_app, :timeout)
+
+      assert Mace.Store.fetch(self(), :other_app, :key) == {:ok, "val"}
+    end
+
+    test "delete/2 uses current process" do
+      Mace.Store.put(:my_app, :timeout, 100)
+
+      Mace.Store.delete(:my_app, :timeout)
+
+      assert Mace.Store.fetch(self(), :my_app, :timeout) == {:ok, nil}
+    end
+
+    test "deleting non-existent key sets it to nil" do
+      assert Mace.Store.delete(self(), :my_app, :no_such_key) == :ok
+      assert Mace.Store.fetch(self(), :my_app, :no_such_key) == {:ok, nil}
+    end
+
+    test "Mace.delete sets the key to nil" do
+      Mace.set(:my_app, :timeout, 100)
+      Mace.set(:my_app, :debug, true)
+
+      Mace.delete(:my_app, :timeout)
+
+      assert Mace.get(:my_app, :timeout) == {:ok, nil}
+      assert Mace.get(:my_app, :debug) == {:ok, true}
+    end
+  end
+
+  describe "tree walk" do
+    test "inherits config via monitored_by chain (Task.async)" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          send(parent, {:result, Mace.Store.fetch(self(), :my_app, :timeout)})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, {:ok, 100}}
+    end
+
+    test "inherits config through two levels of monitored_by" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      parent = self()
+
+      middle =
+        Task.async(fn ->
+          inner =
+            Task.async(fn ->
+              send(parent, {:result, Mace.Store.fetch(self(), :my_app, :timeout)})
+            end)
+
+          Task.await(inner)
+        end)
+
+      Task.await(middle)
+      assert_receive {:result, {:ok, 100}}
+    end
+
+    test "stops at first pid with registered config in the chain" do
+      Mace.Store.put(:my_app, :timeout, 100)
+
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          Mace.Store.put(:my_app, :timeout, 999)
+
+          inner =
+            Task.async(fn ->
+              send(parent, {:result, Mace.Store.fetch(self(), :my_app, :timeout)})
+            end)
+
+          Task.await(inner)
+        end)
+
+      Task.await(task)
+      assert_receive {:result, {:ok, 999}}
+    end
+
+    test "self config takes priority over ancestor config" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          Mace.Store.put(:my_app, :timeout, 200)
+          send(parent, {:result, Mace.Store.fetch(self(), :my_app, :timeout)})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, {:ok, 200}}
+    end
+
+    test "returns :error when no config found anywhere in the chain" do
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          send(parent, {:result, Mace.Store.fetch(self(), :my_app, :timeout)})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, :error}
+    end
+
+    test "to_map inherits via monitored_by chain" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          send(parent, {:result, Mace.Store.to_map(self())})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, %{my_app: %{timeout: 100}}}
+    end
+
+    test "to_map returns empty map when no config anywhere in the chain" do
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          send(parent, {:result, Mace.Store.to_map(self())})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, %{}}
+    end
+
+    test "deleting own config falls through to ancestor config" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          Mace.Store.put(:my_app, :timeout, 999)
+          Mace.Store.delete(self())
+          send(parent, {:result, Mace.Store.fetch(self(), :my_app, :timeout)})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, {:ok, 100}}
+    end
+
+    test "to_map falls through to ancestor when own config is deleted" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          Mace.Store.put(:my_app, :timeout, 999)
+          Mace.Store.delete(self())
+          send(parent, {:result, Mace.Store.to_map(self())})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, %{my_app: %{timeout: 100}}}
+    end
+
+    test "to_map from task with no config returns ancestor config" do
+      Mace.Store.put(:my_app, :timeout, 100)
+      parent = self()
+
+      task =
+        Task.async(fn ->
+          send(parent, {:result, Mace.Store.to_map(self())})
+        end)
+
+      Task.await(task)
+      assert_receive {:result, %{my_app: %{timeout: 100}}}
+    end
+  end
 end

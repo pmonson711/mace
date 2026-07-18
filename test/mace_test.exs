@@ -3,7 +3,6 @@ defmodule MaceTest do
 
   setup do
     Mace.Store.init()
-    on_exit(fn -> Mace.Store.delete(self()) end)
     :ok
   end
 

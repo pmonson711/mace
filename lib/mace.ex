@@ -39,7 +39,9 @@ defmodule Mace do
   Subsequent calls to `Application.get_env(app, key)` from the same process
   will return `value` instead of the real application config.
   """
-  defdelegate set(app, key, value), to: Mace.Store, as: :put
+  def set(app, key, value) do
+    Mace.Store.put(owner(), app, key, value)
+  end
 
   @doc """
   Sets multiple config overrides from a keyword list.
@@ -48,14 +50,23 @@ defmodule Mace do
 
       Mace.set(:my_app, timeout: 100, debug: true)
   """
-  defdelegate set(app, kvlist), to: Mace.Store, as: :put
+  def set(app, kvlist) do
+    pid = owner()
+
+    kvlist
+    |> Keyword.new()
+    |> Enum.map(fn {k, v} -> Mace.Store.put(pid, app, k, v) end)
+  rescue
+    Protocol.UndefinedError ->
+      raise ArgumentError, "expected a keyword list, got: #{inspect(kvlist)}"
+  end
 
   @doc """
   Gets the active config override for the current process.
   Returns `{:ok, value}` or `:error`.
   """
   def get(app, key) do
-    Mace.Store.fetch(self(), app, key)
+    Mace.Store.fetch(owner(), app, key)
   end
 
   @doc """
@@ -63,8 +74,26 @@ defmodule Mace do
   Call in `on_exit` to prevent config bleed.
   """
   def reset do
-    Mace.Store.delete(self())
+    Mace.Store.delete(owner())
     :ok
+  end
+
+  @doc """
+  Removes a specific config override for the current process.
+
+  Sets the key to `nil`, mirroring `Application.delete_env/2`.
+  Subsequent `Mace.get/2` calls return `{:ok, nil}`.
+
+  ## Examples
+
+      iex> Mace.set(:my_app, :timeout, 100)
+      iex> Mace.delete(:my_app, :timeout)
+      :ok
+      iex> Mace.get(:my_app, :timeout)
+      {:ok, nil}
+  """
+  def delete(app, key) do
+    Mace.Store.delete(owner(), app, key)
   end
 
   @doc """
@@ -77,7 +106,7 @@ defmodule Mace do
     snapshot = Mace.Diff.snapshot(app)
 
     overrides =
-      Mace.Store.to_map(self())
+      Mace.Store.to_map(owner())
       |> Map.get(app, %{})
 
     diff_map = Mace.Diff.compute(snapshot, overrides)
@@ -107,7 +136,7 @@ defmodule Mace do
       # => %{my_app: %{timeout: 100, debug: true}}
   """
   def pid_config do
-    Mace.Store.to_map(self())
+    Mace.Store.to_map(owner())
   end
 
   @doc """
@@ -127,5 +156,12 @@ defmodule Mace do
     test_name = Map.get(context, :test)
     Mace.Formatter.record(module, test_name)
     reset()
+  end
+
+  defp owner do
+    case ExUnit.fetch_test_supervisor() do
+      {:ok, test_sup} -> test_sup
+      :error -> self()
+    end
   end
 end

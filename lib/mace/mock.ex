@@ -11,37 +11,52 @@ defmodule Mace.Mock do
     if installed?() do
       :ok
     else
-      :ok = :meck.new(Application, [:passthrough, :non_strict])
+      try do
+        :meck.new(Application, [:passthrough, :non_strict])
 
-      :meck.expect(Application, :get_env, 2, fn app, key ->
-        case Mace.Store.fetch(self(), app, key) do
-          {:ok, value} -> value
-          :error -> fallback_get_env(app, key)
-        end
-      end)
-
-      :meck.expect(Application, :get_env, 3, fn app, key, default ->
-        case Mace.Store.fetch(self(), app, key) do
-          {:ok, value} -> value
-          :error -> fallback_get_env(app, key, default)
-        end
-      end)
-
-      :meck.expect(Application, :get_all_env, 1, fn app ->
-        real = fallback_get_all_env(app)
-        overrides = Mace.Store.to_map(self()) |> Map.get(app, %{})
-
-        Enum.reduce(overrides, real, fn {key, value}, acc ->
-          Keyword.put(acc, key, value)
+        :meck.expect(Application, :get_env, 2, fn app, key ->
+          case Mace.Store.fetch(self(), app, key) do
+            {:ok, value} -> value
+            :error -> :meck.passthrough([app, key])
+          end
         end)
-      end)
 
-      :meck.expect(Application, :fetch_env, 2, fn app, key ->
-        case Mace.Store.fetch(self(), app, key) do
-          {:ok, value} -> {:ok, value}
-          :error -> fallback_fetch_env(app, key)
-        end
-      end)
+        :meck.expect(Application, :get_env, 3, fn app, key, default ->
+          case Mace.Store.fetch(self(), app, key) do
+            {:ok, value} -> value
+            :error -> :meck.passthrough([app, key, default])
+          end
+        end)
+
+        :meck.expect(Application, :get_all_env, 1, fn app ->
+          real = :meck.passthrough([app])
+          overrides = Mace.Store.to_map(self()) |> Map.get(app, %{})
+
+          Enum.reduce(overrides, real, fn {key, value}, acc ->
+            Keyword.put(acc, key, value)
+          end)
+        end)
+
+        :meck.expect(Application, :fetch_env, 2, fn app, key ->
+          case Mace.Store.fetch(self(), app, key) do
+            {:ok, value} -> {:ok, value}
+            :error -> :meck.passthrough([app, key])
+          end
+        end)
+
+        :meck.expect(Application, :fetch_env!, 2, fn app, key ->
+          case Mace.Store.fetch(self(), app, key) do
+            {:ok, value} -> value
+            :error -> :meck.passthrough([app, key])
+          end
+        end)
+      rescue
+        e in ErlangError ->
+          case e.original do
+            {:already_started, _pid} -> :ok
+            _ -> reraise e, __STACKTRACE__
+          end
+      end
 
       :ok
     end
@@ -62,35 +77,5 @@ defmodule Mace.Mock do
     :meck.history(Application) != false
   rescue
     _ -> false
-  end
-
-  # Calls to :application module bypass the mocked Elixir.Application
-
-  defp fallback_get_env(app, key) do
-    case :application.get_env(app, key) do
-      {:ok, value} -> value
-      :undefined -> nil
-    end
-  end
-
-  defp fallback_get_env(app, key, default) do
-    case :application.get_env(app, key) do
-      {:ok, value} -> value
-      :undefined -> default
-    end
-  end
-
-  defp fallback_get_all_env(app) do
-    case :application.get_all_env(app) do
-      {:ok, env} -> env
-      _ -> []
-    end
-  end
-
-  defp fallback_fetch_env(app, key) do
-    case :application.get_env(app, key) do
-      {:ok, value} -> {:ok, value}
-      :undefined -> :error
-    end
   end
 end

@@ -26,12 +26,16 @@ defmodule Mace.MixProject do
   end
 
   defp deps do
-    [{:meck, "~> 0.9"}]
+    [
+      {:meck, "~> 0.9"},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
+    ]
   end
 
   defp package do
     [
       licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/pmonson711/mace"},
       source_url: "https://github.com/pmonson711/mace"
     ]
   end
