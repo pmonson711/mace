@@ -11,7 +11,6 @@ EXTENDS Naturals, Sequences, FiniteSets, TLC
 (*      On DOWN it removes both config (ETS delete) and cache (flush).     *)
 (*   4. Fallthrough fetch: walk continues when ancestor lacks the key.     *)
 (*                                                                         *)
-(* Design doc: doc/specs/2025-07-18-tla-store-model-design.md              *)
 (***************************************************************************)
 
 \* -------------------------------------------------------------------------
@@ -203,7 +202,7 @@ LiveAncestors(p) ==
 
 Init ==
   \E lFn \in [Pids -> SUBSET Pids],
-      mFn \in [Pids -> SUBSET Pids] :
+     mFn \in [Pids -> SUBSET Pids] :
     /\ links     = lFn
     /\ monitors  = mFn
     /\ ExUnitRealistic

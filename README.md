@@ -80,8 +80,8 @@ Both tests run with `async: true`. Each sees its own timeout value.
 ## Debugging Failures
 
 When a test fails, knowing the active config is half the battle.
-Use `Mace.cleanup/1` in `on_exit` instead of `Mace.reset/0` to record
-a config diff:
+Config cleanup happens automatically when the test process exits, but if
+you want a diff on failure, use `Mace.cleanup/1` in `on_exit`:
 
 ```elixir
 setup context do
@@ -257,7 +257,7 @@ defmodule MyLibTest do
   end
 
   setup do
-    Mace.set(:my_lib, timeout: 100, retries: 3)
+    Mace.put_config(:my_lib, timeout: 100, retries: 3)
     :ok
   end
 
@@ -283,8 +283,8 @@ owns the config keys.
 | `Mace.put_config(app, key, value)` | Set a config override for this test |
 | `Mace.put_config(app, keyword_list)` | Set multiple overrides at once |
 | `Mace.get_config(app, key)` | Read the active override (returns `{:ok, v}` or `:error`) |
-| `Mace.reset()` | Clear all overrides for this test |
+| `Mace.reset()` | Clear all overrides (escape hatch; automatic on test exit) |
 | `Mace.diff(app)` | Show diff of overrides vs application defaults |
 | `Mace.task(fn)` | Spawn a Task that inherits config |
-| `Mace.cleanup(context)` | Record diff + reset (use in `on_exit`) |
+| `Mace.cleanup(context)` | Record diff + reset; call in `on_exit` for failure debugging |
 | `Mace.pid_config()` | Return full config map for this process |

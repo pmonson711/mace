@@ -2,7 +2,7 @@ defmodule Mace do
   @moduledoc """
   Per-test configuration isolation for ExUnit.
 
-  Provides `put_config/3`, `get_config/2`, `reset/0`, and `diff/1` to manage
+  Provides `put_config/3`, `get_config/2`, and `diff/1` to manage
   test-scoped application config that intercepts `Application.get_env` transparently.
 
   ## Setup
@@ -22,7 +22,6 @@ defmodule Mace do
 
         setup do
           Mace.put_config(:my_app, :timeout, 100)
-          on_exit(fn -> Mace.reset() end)
           :ok
         end
 
@@ -88,7 +87,9 @@ defmodule Mace do
 
   @doc """
   Clears all config overrides for the current test process.
-  Call in `on_exit` to prevent config bleed.
+  Normally unnecessary — cleanup happens automatically when the test
+  process exits via the DOWN handler. Use as an escape hatch when you
+  need to explicitly clear config mid-test.
   """
   def reset do
     Mace.Store.delete(owner())
@@ -158,7 +159,8 @@ defmodule Mace do
 
   @doc """
   Records the current process's config diffs and then resets.
-  Call this in `on_exit` to enable automatic config-diff display on test failure.
+  Optional — replace a bare `Mace.reset/0` in `on_exit` to enable
+  automatic config-diff display on test failure.
 
   ## Example
 
