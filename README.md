@@ -18,7 +18,7 @@ Mace handles the interception transparently.
 
 ```elixir
 def deps do
-  [{:mace, "~> 0.1"}]
+  [{:mace, "~> 0.1", only: [:test]}]
 end
 ```
 
