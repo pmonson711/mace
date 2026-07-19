@@ -16,13 +16,13 @@ defmodule Mace.AsyncSafetyTest do
 
   describe "async config isolation" do
     test "test A sets override" do
-      Mace.set(:mace, :test_level, :level_a)
+      Mace.put_config(:mace, :test_level, :level_a)
       Process.sleep(10)
       assert AsyncDemoApp.get_level() == :level_a
     end
 
     test "test B sets different override" do
-      Mace.set(:mace, :test_level, :level_b)
+      Mace.put_config(:mace, :test_level, :level_b)
       Process.sleep(10)
       assert AsyncDemoApp.get_level() == :level_b
     end

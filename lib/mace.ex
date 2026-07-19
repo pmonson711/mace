@@ -2,7 +2,7 @@ defmodule Mace do
   @moduledoc """
   Per-test configuration isolation for ExUnit.
 
-  Provides `set/3`, `set_many/2`, `get/3`, `reset/0`, and `diff/1` to manage
+  Provides `put_config/3`, `get_config/2`, `reset/0`, and `diff/1` to manage
   test-scoped application config that intercepts `Application.get_env` transparently.
 
   ## Setup
@@ -21,7 +21,7 @@ defmodule Mace do
         use ExUnit.Case, async: true
 
         setup do
-          Mace.set(:my_app, :timeout, 100)
+          Mace.put_config(:my_app, :timeout, 100)
           on_exit(fn -> Mace.reset() end)
           :ok
         end
@@ -39,7 +39,7 @@ defmodule Mace do
   Subsequent calls to `Application.get_env(app, key)` from the same process
   will return `value` instead of the real application config.
   """
-  def set(app, key, value) do
+  def put_config(app, key, value) do
     Mace.Store.put(owner(), app, key, value)
   end
 
@@ -48,9 +48,9 @@ defmodule Mace do
 
   ## Example
 
-      Mace.set(:my_app, timeout: 100, debug: true)
+      Mace.put_config(:my_app, timeout: 100, debug: true)
   """
-  def set(app, kvlist) do
+  def put_config(app, kvlist) do
     pid = owner()
 
     kvlist
@@ -65,9 +65,18 @@ defmodule Mace do
   Gets the active config override for the current process.
   Returns `{:ok, value}` or `:error`.
   """
-  def get(app, key) do
+  def get_config(app, key) do
     Mace.Store.fetch(owner(), app, key)
   end
+
+  @deprecated "Use Mace.put_config/3 instead"
+  def set(app, key, value), do: put_config(app, key, value)
+
+  @deprecated "Use Mace.put_config/2 instead"
+  def set(app, kvlist), do: put_config(app, kvlist)
+
+  @deprecated "Use Mace.get_config/2 instead"
+  def get(app, key), do: get_config(app, key)
 
   @doc """
   Same as `get/2` but logs the full tree walk path to stderr.
@@ -90,14 +99,14 @@ defmodule Mace do
   Removes a specific config override for the current process.
 
   Sets the key to `nil`, mirroring `Application.delete_env/2`.
-  Subsequent `Mace.get/2` calls return `{:ok, nil}`.
+  Subsequent `Mace.get_config/2` calls return `{:ok, nil}`.
 
   ## Examples
 
-      iex> Mace.set(:my_app, :timeout, 100)
+      iex> Mace.put_config(:my_app, :timeout, 100)
       iex> Mace.delete(:my_app, :timeout)
       :ok
-      iex> Mace.get(:my_app, :timeout)
+      iex> Mace.get_config(:my_app, :timeout)
       {:ok, nil}
   """
   def delete(app, key) do
@@ -154,7 +163,7 @@ defmodule Mace do
   ## Example
 
       setup context do
-        Mace.set(:my_app, :timeout, 100)
+        Mace.put_config(:my_app, :timeout, 100)
         on_exit(fn -> Mace.cleanup(context) end)
         :ok
       end

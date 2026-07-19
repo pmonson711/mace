@@ -7,7 +7,7 @@ that uses the global application config state.
 ## How It Works
 
 Mace sits between your code and `Application.get_env`. When your test calls
-`Mace.set(:my_app, :timeout, 100)`, Mace registers that override for the test
+`Mace.put_config(:my_app, :timeout, 100)`, Mace registers that override for the test
 process. Any call to `Application.get_env(:my_app, :timeout)` from that process
 (or a linked child process) gets the override instead of the real config.
 
@@ -57,7 +57,7 @@ defmodule TimeoutTest do
   end
 
   setup do
-    Mace.set(:my_app, :timeout, 100)
+    Mace.put_config(:my_app, :timeout, 100)
     :ok
   end
 
@@ -68,7 +68,7 @@ defmodule TimeoutTest do
   end
 
   test "handles long timeouts" do
-    Mace.set(:my_app, :timeout, 50_000)
+    Mace.put_config(:my_app, :timeout, 50_000)
     assert MyModule.do_thing() == :ok
   end
 end
@@ -84,7 +84,7 @@ a config diff:
 
 ```elixir
 setup context do
-  Mace.set(:my_app, :timeout, 100)
+  Mace.put_config(:my_app, :timeout, 100)
   on_exit(fn -> Mace.cleanup(context) end)
   :ok
 end
@@ -132,7 +132,7 @@ for one describe block and the old client for another:
 ```elixir
 describe "with legacy client" do
   setup do
-    Mace.set(:my_app, :http_client, MyApp.LegacyClient)
+    Mace.put_config(:my_app, :http_client, MyApp.LegacyClient)
   end
 
   test "makes requests" do
@@ -142,7 +142,7 @@ end
 
 describe "with new client" do
   setup do
-    Mace.set(:my_app, :http_client, MyApp.NewClient)
+    Mace.put_config(:my_app, :http_client, MyApp.NewClient)
   end
 
   test "makes requests" do
@@ -164,8 +164,8 @@ Here's a file upload pipeline being migrated from local disk storage to S3:
 ```elixir
 describe "with local disk storage" do
   setup do
-    Mace.set(:my_app, :storage_backend, MyApp.LocalStorage)
-    Mace.set(:my_app, :storage_path, "test/fixtures/uploads")
+    Mace.put_config(:my_app, :storage_backend, MyApp.LocalStorage)
+    Mace.put_config(:my_app, :storage_path, "test/fixtures/uploads")
   end
 
   test "stores and retrieves files" do
@@ -176,8 +176,8 @@ end
 
 describe "with S3 storage" do
   setup do
-    Mace.set(:my_app, :storage_backend, MyApp.S3Storage)
-    Mace.set(:my_app, :s3_bucket, "test-bucket")
+    Mace.put_config(:my_app, :storage_backend, MyApp.S3Storage)
+    Mace.put_config(:my_app, :s3_bucket, "test-bucket")
   end
 
   test "stores and retrieves files" do
@@ -198,7 +198,7 @@ config via link-walking. Nothing to do:
 
 ```elixir
 test "task sees test config" do
-  Mace.set(:my_app, :timeout, 100)
+  Mace.put_config(:my_app, :timeout, 100)
 
   task = Task.async(fn ->
     Application.get_env(:my_app, :timeout)  # => 100
@@ -215,9 +215,9 @@ to explicitly transfer config to the child process.
 
 | Function | |
 |---|---|
-| `Mace.set(app, key, value)` | Set a config override for this test |
-| `Mace.set(app, keyword_list)` | Set multiple overrides at once |
-| `Mace.get(app, key)` | Read the active override (returns `{:ok, v}` or `:error`) |
+| `Mace.put_config(app, key, value)` | Set a config override for this test |
+| `Mace.put_config(app, keyword_list)` | Set multiple overrides at once |
+| `Mace.get_config(app, key)` | Read the active override (returns `{:ok, v}` or `:error`) |
 | `Mace.reset()` | Clear all overrides for this test |
 | `Mace.diff(app)` | Show diff of overrides vs application defaults |
 | `Mace.task(fn)` | Spawn a Task that inherits config |
