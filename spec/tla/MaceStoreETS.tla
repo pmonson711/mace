@@ -1,8 +1,15 @@
------------------------------- MODULE MaceStore ------------------------------
+----------------------------- MODULE MaceStoreETS ----------------------------
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
 (***************************************************************************)
-(* Model of Mace.Store tree walk with Registry termination.                *)
+(* Model of Mace.Store with ETS-backed config storage (no Registry).       *)
+(*                                                                         *)
+(* Key differences from Registry-based approach:                           *)
+(*   1. Config stored in a passive ETS table — no GenServer, no IPC.       *)
+(*   2. No Registry PID to exclude from candidate_pids.                    *)
+(*   3. A background monitor process watches config-owning PIDs.           *)
+(*      On DOWN it removes both config (ETS delete) and cache (flush).     *)
+(*   4. Fallthrough fetch: walk continues when ancestor lacks the key.     *)
 (*                                                                         *)
 (* Design doc: doc/specs/2025-07-18-tla-store-model-design.md              *)
 (***************************************************************************)
@@ -138,18 +145,36 @@ BFS(queue, seen) ==
 \* FETCH OPERATORS
 \* -------------------------------------------------------------------------
 
-(* Fetch without cache — always runs the tree walk.
+(* Fetch without cache — fallthrough on key miss.
+   Continues walking when an ancestor has config but lacks the specific key.
    Returns: value from Values, FetchNil for tombstones, FetchErr on miss. *)
+
+RECURSIVE FetchWalk(_, _, _, _, _)
+FetchWalk(pid, app, key, queue, seen) ==
+  IF queue = <<>> THEN FetchErr
+  ELSE
+    LET entry == Head(queue)
+        cur   == entry[1]
+        src   == entry[2]
+    IN
+      IF cur \in seen
+      THEN FetchWalk(pid, app, key, Tail(queue), seen)
+      ELSE
+        IF HasConfig(cur)
+        THEN
+          CASE config[cur][app][key] = Tombstone -> FetchNil
+            [] HasSpecificConfig(cur, app, key) -> config[cur][app][key]
+            [] OTHER -> FetchWalk(pid, app, key,
+                            Tail(queue) \o SeqFromSet(Candidates(cur, src)),
+                            seen \cup {cur})
+        ELSE
+          FetchWalk(pid, app, key,
+            Tail(queue) \o SeqFromSet(Candidates(cur, src)),
+            seen \cup {cur})
+
 FetchRaw(pid, app, key) ==
   IF pid \in terminated THEN FetchErr
-  ELSE
-    LET ancestor == BFS(<<<<pid, SrcLinks>>>>, {})
-    IN
-      IF ancestor = WalkNone THEN FetchErr
-      ELSE
-        CASE config[ancestor][app][key] = Tombstone -> FetchNil
-          [] HasSpecificConfig(ancestor, app, key) -> config[ancestor][app][key]
-          [] OTHER -> FetchErr
+  ELSE FetchWalk(pid, app, key, <<<<pid, SrcLinks>>>>, {})
 
 (* Fetch with negative cache *)
 FetchCached(pid, app, key) ==
@@ -206,7 +231,7 @@ Terminate(pid) ==
   /\ monitors' = [p \in Pids |->
        IF p = pid THEN {}
        ELSE monitors[p] \ {pid}]
-  /\ UNCHANGED cache
+  /\ cache' = {}  \* flush stale cache on termination (topology changed)
 
 FetchAction(pid, app, key) ==
   /\ pid \notin terminated

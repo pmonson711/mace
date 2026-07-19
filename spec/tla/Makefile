@@ -7,11 +7,11 @@ export DTLA_LIB
 TLA_SCRIPT = $(HOME)/.local/bin/tla
 TLC_EXTRA  = -deadlock
 
-ALL_CFGS   = MaceStore.cfg MaceStoreFixed.cfg MaceStoreTargeted.cfg $(wildcard MaceStore-*.cfg)
+ALL_CFGS   = MaceStoreETS.cfg
 
 .PHONY: all clean $(ALL_CFGS)
 
-all: MaceStore.cfg
+all: MaceStoreETS.cfg
 
 $(ALL_CFGS):
 	$(TLA_SCRIPT) $@ $(TLC_EXTRA)
