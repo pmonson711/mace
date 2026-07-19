@@ -17,7 +17,7 @@ defmodule Mace.Store do
     res
   end
 
-  def put(pid, app, key, value) when is_atom(app) and is_atom(key) do
+  def put(pid, app, key, value) when is_atom(app) and (is_atom(key) or is_binary(key)) do
     updater = fn current ->
       app_map = Map.get(current, app, %{})
       Map.put(current, app, Map.put(app_map, key, value))
@@ -37,7 +37,7 @@ defmodule Mace.Store do
   @doc """
   Stores a config override for the current process.
   """
-  def put(app, key, value) when is_atom(app) and is_atom(key) do
+  def put(app, key, value) when is_atom(app) and (is_atom(key) or is_binary(key)) do
     put(self(), app, key, value)
   end
 
@@ -61,7 +61,7 @@ defmodule Mace.Store do
   to find an ancestor that does, enabling spawned Tasks and GenServers to
   inherit test config automatically.
   """
-  def fetch(pid, app, key) when is_pid(pid) and is_atom(app) and is_atom(key) do
+  def fetch(pid, app, key) when is_pid(pid) and is_atom(app) and (is_atom(key) or is_binary(key)) do
     if :ets.member(@neg_cache, {pid, app, key}) do
       :error
     else
@@ -123,14 +123,14 @@ defmodule Mace.Store do
       iex> Mace.Store.fetch(self(), :my_app, :timeout)
       {:ok, nil}
   """
-  def delete(pid, app, key) when is_pid(pid) and is_atom(app) and is_atom(key) do
+  def delete(pid, app, key) when is_pid(pid) and is_atom(app) and (is_atom(key) or is_binary(key)) do
     put(pid, app, key, {__MODULE__, :tombstone})
   end
 
   @doc """
   Removes a specific config override for the current process.
   """
-  def delete(app, key) when is_atom(app) and is_atom(key) do
+  def delete(app, key) when is_atom(app) and (is_atom(key) or is_binary(key)) do
     delete(self(), app, key)
   end
 

@@ -158,6 +158,23 @@ defmodule Mace do
     reset()
   end
 
+  @doc """
+  Enables interception of System.get_env/put_env/delete_env.
+  Writes go to the per-process Mace.Store instead of the global OS environment.
+  """
+  def enable_system_env_intercept do
+    Process.put(:mace_system_env_intercept, true)
+    :ok
+  end
+
+  @doc """
+  Disables interception of System.get_env/put_env/delete_env.
+  """
+  def disable_system_env_intercept do
+    Process.delete(:mace_system_env_intercept)
+    :ok
+  end
+
   defp owner do
     case ExUnit.fetch_test_supervisor() do
       {:ok, test_sup} -> test_sup
