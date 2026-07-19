@@ -3,7 +3,7 @@ defmodule Mace.SpawnTest do
 
   setup do
     Mace.Store.init()
-    Mace.set(:my_app, :timeout, 100)
+    Mace.put_config(:my_app, :timeout, 100)
     on_exit(fn -> Mace.reset() end)
     :ok
   end
@@ -12,7 +12,7 @@ defmodule Mace.SpawnTest do
     test "spawns a task that inherits parent's config via load" do
       task =
         Mace.task(fn ->
-          Mace.get(:my_app, :timeout)
+          Mace.get_config(:my_app, :timeout)
         end)
 
       assert Task.await(task) == {:ok, 100}
@@ -35,18 +35,18 @@ defmodule Mace.SpawnTest do
     test "child modifying config does not affect parent" do
       task =
         Mace.task(fn ->
-          Mace.set(:my_app, :timeout, 999)
-          Mace.get(:my_app, :timeout)
+          Mace.put_config(:my_app, :timeout, 999)
+          Mace.get_config(:my_app, :timeout)
         end)
 
       assert Task.await(task) == {:ok, 999}
-      assert Mace.get(:my_app, :timeout) == {:ok, 100}
+      assert Mace.get_config(:my_app, :timeout) == {:ok, 100}
     end
   end
 
   describe "pid_config/0" do
     test "returns the current pid's config as a map" do
-      Mace.set(:my_app, :debug, true)
+      Mace.put_config(:my_app, :debug, true)
       config = Mace.pid_config()
 
       assert config == %{my_app: %{timeout: 100, debug: true}}

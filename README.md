@@ -7,18 +7,19 @@ that uses the global application config state.
 ## How It Works
 
 Mace sits between your code and `Application.get_env`. When your test calls
-`Mace.set(:my_app, :timeout, 100)`, Mace registers that override for the test
+`Mace.put_config(:my_app, :timeout, 100)`, Mace registers that override for the test
 process. Any call to `Application.get_env(:my_app, :timeout)` from that process
 (or a linked child process) gets the override instead of the real config.
 
 Your production code doesn't change. It still calls `Application.get_env`.
 Mace handles the interception transparently.
 
+
 ## Install
 
 ```elixir
 def deps do
-  [{:mace, "~> 0.1"}]
+  [{:mace, "~> 0.1", only: [:test]}]
 end
 ```
 
@@ -57,8 +58,7 @@ defmodule TimeoutTest do
   end
 
   setup do
-    Mace.set(:my_app, :timeout, 100)
-    on_exit(fn -> Mace.reset() end)
+    Mace.put_config(:my_app, :timeout, 100)
     :ok
   end
 
@@ -69,7 +69,7 @@ defmodule TimeoutTest do
   end
 
   test "handles long timeouts" do
-    Mace.set(:my_app, :timeout, 50_000)
+    Mace.put_config(:my_app, :timeout, 50_000)
     assert MyModule.do_thing() == :ok
   end
 end
@@ -80,12 +80,12 @@ Both tests run with `async: true`. Each sees its own timeout value.
 ## Debugging Failures
 
 When a test fails, knowing the active config is half the battle.
-Use `Mace.cleanup/1` in `on_exit` instead of `Mace.reset/0` to record
-a config diff:
+Config cleanup happens automatically when the test process exits, but if
+you want a diff on failure, use `Mace.cleanup/1` in `on_exit`:
 
 ```elixir
 setup context do
-  Mace.set(:my_app, :timeout, 100)
+  Mace.put_config(:my_app, :timeout, 100)
   on_exit(fn -> Mace.cleanup(context) end)
   :ok
 end
@@ -133,8 +133,7 @@ for one describe block and the old client for another:
 ```elixir
 describe "with legacy client" do
   setup do
-    Mace.set(:my_app, :http_client, MyApp.LegacyClient)
-    on_exit(fn -> Mace.reset() end)
+    Mace.put_config(:my_app, :http_client, MyApp.LegacyClient)
   end
 
   test "makes requests" do
@@ -144,8 +143,7 @@ end
 
 describe "with new client" do
   setup do
-    Mace.set(:my_app, :http_client, MyApp.NewClient)
-    on_exit(fn -> Mace.reset() end)
+    Mace.put_config(:my_app, :http_client, MyApp.NewClient)
   end
 
   test "makes requests" do
@@ -167,9 +165,8 @@ Here's a file upload pipeline being migrated from local disk storage to S3:
 ```elixir
 describe "with local disk storage" do
   setup do
-    Mace.set(:my_app, :storage_backend, MyApp.LocalStorage)
-    Mace.set(:my_app, :storage_path, "test/fixtures/uploads")
-    on_exit(fn -> Mace.reset() end)
+    Mace.put_config(:my_app, :storage_backend, MyApp.LocalStorage)
+    Mace.put_config(:my_app, :storage_path, "test/fixtures/uploads")
   end
 
   test "stores and retrieves files" do
@@ -180,9 +177,8 @@ end
 
 describe "with S3 storage" do
   setup do
-    Mace.set(:my_app, :storage_backend, MyApp.S3Storage)
-    Mace.set(:my_app, :s3_bucket, "test-bucket")
-    on_exit(fn -> Mace.reset() end)
+    Mace.put_config(:my_app, :storage_backend, MyApp.S3Storage)
+    Mace.put_config(:my_app, :s3_bucket, "test-bucket")
   end
 
   test "stores and retrieves files" do
@@ -203,7 +199,7 @@ config via link-walking. Nothing to do:
 
 ```elixir
 test "task sees test config" do
-  Mace.set(:my_app, :timeout, 100)
+  Mace.put_config(:my_app, :timeout, 100)
 
   task = Task.async(fn ->
     Application.get_env(:my_app, :timeout)  # => 100
@@ -216,15 +212,79 @@ end
 If you're doing something exotic that doesn't create a link, use `Mace.task/1`
 to explicitly transfer config to the child process.
 
+## A warning about libraries
+
+Config is an application concern, not a library concern. Reading config from a library:
+
+- Creates hidden coupling between the host app's config files and the library's
+  behavior
+- Makes it impossible for two dependencies of the same app to use the library
+  with different configuration
+- Breaks when used from escripts or releases where the app isn't started
+
+As such while Mace may be useful for libraries, please be careful with your
+design decisions.
+
+Accept configuration as function arguments or module options instead:
+
+```elixir
+# Bad: library reads config
+defmodule MyLib do
+  def timeout, do: Application.get_env(:my_lib, :timeout, 5000)
+end
+
+# Good: caller passes config
+defmodule MyLib do
+  def do_thing(opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, 5000)
+  end
+end
+```
+
+### When Mace still helps
+
+Sometimes configuration is the best option for a library, many time that
+indicates a harness that runs your application code or something that help
+compose other libraries.
+
+```elixir
+defmodule MyLibTest do
+  use ExUnit.Case, async: true
+
+  setup_all do
+    Mace.Mock.install()
+    :ok
+  end
+
+  setup do
+    Mace.put_config(:my_lib, timeout: 100, retries: 3)
+    :ok
+  end
+
+  test "respects configured timeout" do
+    assert MyLib.do_thing() == :ok
+  end
+end
+```
+
+### When Application config is the right answer
+
+Using Application config in a library is best avoided, but sometimes it is the
+right answer. Ecto repos, Phoenix endpoints, and Oban queues all read their
+configuration from the host app's Application environment. Each needs config
+to be set once globally rather than threaded through every call site, and each
+is central enough to its application that there's no ambiguity about which app
+owns the config keys.
+
 ## API
 
 | Function | |
 |---|---|
-| `Mace.set(app, key, value)` | Set a config override for this test |
-| `Mace.set(app, keyword_list)` | Set multiple overrides at once |
-| `Mace.get(app, key)` | Read the active override (returns `{:ok, v}` or `:error`) |
-| `Mace.reset()` | Clear all overrides for this test |
+| `Mace.put_config(app, key, value)` | Set a config override for this test |
+| `Mace.put_config(app, keyword_list)` | Set multiple overrides at once |
+| `Mace.get_config(app, key)` | Read the active override (returns `{:ok, v}` or `:error`) |
+| `Mace.reset()` | Clear all overrides (escape hatch; automatic on test exit) |
 | `Mace.diff(app)` | Show diff of overrides vs application defaults |
 | `Mace.task(fn)` | Spawn a Task that inherits config |
-| `Mace.cleanup(context)` | Record diff + reset (use in `on_exit`) |
+| `Mace.cleanup(context)` | Record diff + reset; call in `on_exit` for failure debugging |
 | `Mace.pid_config()` | Return full config map for this process |
