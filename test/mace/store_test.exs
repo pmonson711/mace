@@ -120,35 +120,35 @@ defmodule Mace.StoreTest do
   end
 
   describe "cache staleness" do
-    test "stale negative cache prevents re-walk after config becomes reachable" do
-      Mace.Store.put(:my_app, :k1, "available")
+    test "cache is flushed when a config-registered process terminates" do
+      Mace.Store.put(:my_app, :k1, "persists")
 
       parent = self()
 
-      task =
-        Task.async(fn ->
-          send(parent, {:child_pid, self()})
+      {:ok, victim} =
+        Task.start(fn ->
+          Mace.Store.put(:my_app, :k2, "ephemeral")
+          send(parent, {:ready, self()})
+
           receive do
-            :query -> send(parent, {:result, Mace.Store.fetch(self(), :my_app, :k1)})
+            :die -> :ok
           end
         end)
 
-      assert_receive {:child_pid, child_pid}
+      assert_receive {:ready, ^victim}
 
-      # Simulate a cached miss — as if a previous query for k1 failed
-      # before the config became reachable (e.g. after an ancestor terminated)
-      :ets.insert(:mace_neg_cache, {{child_pid, :my_app, :k1}, true})
-      :ets.insert(:mace_neg_keys, {{:my_app, :k1}, child_pid})
+      :ets.insert(:mace_neg_cache, {{self(), :my_app, :k1}, true})
+      :ets.insert(:mace_neg_keys, {{:my_app, :k1}, self()})
 
-      send(task.pid, :query)
-      Task.await(task)
+      assert Mace.Store.fetch(self(), :my_app, :k1) == :error
 
-      # FIXME: stale cache returns :error.
-      # A fresh tree walk would find {:ok, "available"} from the parent.
-      assert_receive {:result, {:ok, "available"}}
+      Process.exit(victim, :kill)
+      Process.sleep(50)
+
+      refute :ets.member(:mace_neg_cache, {self(), :my_app, :k1})
     end
 
-    test "stale cache persists after closer ancestor terminates exposing deeper config" do
+    test "monitored process death enables fresh tree walk" do
       Mace.Store.put(:my_app, :k2, "from_deeper")
 
       parent = self()
@@ -174,62 +174,46 @@ defmodule Mace.StoreTest do
 
       assert_receive {:intermediate_ready, child_pid}
 
-      # Also monitor child from the test process so it has a second
-      # monitored_by path after intermediate terminates
       Process.monitor(child_pid)
 
-      # Simulate the cache state after a query from child:
-      # walk found intermediate (has k1, not k2) → miss cached
       :ets.insert(:mace_neg_cache, {{child_pid, :my_app, :k2}, true})
       :ets.insert(:mace_neg_keys, {{:my_app, :k2}, child_pid})
 
-      # Terminate the intermediate. Registry removes its config silently —
-      # no call to invalidate_cache. Cache is now stale.
       Process.exit(intermediate, :kill)
+      Process.sleep(50)
 
-      # Child survives (monitored, not linked). A fresh walk would now
-      # find the test process (has k2) via child's monitored_by.
       send(child_pid, :query)
 
-      # FIXME: stale cache returns :error.
-      # A fresh tree walk would find {:ok, "from_deeper"} via the test process.
       assert_receive {:result, {:ok, "from_deeper"}}
     end
   end
 
   describe "first-config-wins opacity" do
-    test "child with partial config blocks ancestor config for missing keys" do
-      # Parent has k2 but not k1
+    test "child with partial config falls through to ancestor for missing keys" do
       Mace.Store.put(:my_app, :k2, "from_parent")
 
       parent = self()
 
       task =
         Task.async(fn ->
-          # Child registers its own partial config
           Mace.Store.put(:my_app, :k1, "from_child")
 
-          # Query a key the child does NOT have but the parent DOES
           result = Mace.Store.fetch(self(), :my_app, :k2)
           send(parent, {:result, result})
         end)
 
       Task.await(task)
 
-      # FIXME: first-config-wins — the tree walk stops at the child
-      # (which has config for k1), so it never reaches the parent's k2.
-      # Returns :error instead of {:ok, "from_parent"}.
       assert_receive {:result, {:ok, "from_parent"}}
     end
 
-    test "child with only tombstones blocks ancestor config" do
+    test "child with tombstones falls through to ancestor for other keys" do
       Mace.Store.put(:my_app, :k2, "from_parent")
 
       parent = self()
 
       task =
         Task.async(fn ->
-          # Child registers a tombstone for k1
           Mace.Store.delete(:my_app, :k1)
 
           result = Mace.Store.fetch(self(), :my_app, :k2)
@@ -238,9 +222,6 @@ defmodule Mace.StoreTest do
 
       Task.await(task)
 
-      # FIXME: first-config-wins — the walk stops at the child because
-      # it has registered config (even just a tombstone for a different key).
-      # Returns :error instead of {:ok, "from_parent"}.
       assert_receive {:result, {:ok, "from_parent"}}
     end
   end
@@ -390,6 +371,58 @@ defmodule Mace.StoreTest do
 
       Task.await(task)
       assert_receive {:result, %{my_app: %{timeout: 100}}}
+    end
+  end
+
+  describe "cross-group contamination" do
+    test "unbounded link traversal reaches config across 3+ link hops" do
+      parent = self()
+
+      # Chain: a_task -> parent -> bridge -> b_task  (3 link hops)
+      # b_task has config at hop 3. 2-hop cap blocks at bridge.
+      bridge = spawn_link(fn -> Process.sleep(:infinity) end)
+
+      _b_task =
+        spawn(fn ->
+          Process.link(bridge)
+          Mace.Store.put(:my_app, :secret, "from_b")
+          Process.sleep(:infinity)
+        end)
+
+      a_task =
+        Task.async(fn ->
+          send(parent, {:result, Mace.Store.fetch(self(), :my_app, :secret)})
+        end)
+
+      Task.await(a_task)
+
+      # With :links, the walk: a_task -> parent -> bridge -> b_task = 3 hops.
+      # With 2-hop link cap, blocked at bridge (3rd hop tagged :monitored_by).
+      assert_receive {:result, :error}
+    end
+
+    test "nested task does not reach config 3+ link hops away" do
+      parent = self()
+
+      # Chain: a_task -> parent -> bridge -> b_task  (3 link hops)
+      # 2-hop cap stops at bridge (tagged :monitored_by, can't follow links)
+      bridge = spawn_link(fn -> Process.sleep(:infinity) end)
+
+      _b_task =
+        spawn(fn ->
+          Process.link(bridge)
+          Mace.Store.put(:my_app, :secret, "from_deep_b")
+          Process.sleep(:infinity)
+        end)
+
+      a_task =
+        Task.async(fn ->
+          send(parent, {:result, Mace.Store.fetch(self(), :my_app, :secret)})
+        end)
+
+      Task.await(a_task)
+
+      assert_receive {:result, :error}
     end
   end
 end
