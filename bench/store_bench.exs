@@ -1,190 +1,129 @@
 defmodule StoreBench do
-  @iterations 10_000
-  @warmup 1_000
+  @results_dir "bench/results"
 
   def run do
     Mace.Store.init()
     Process.flag(:trap_exit, true)
 
-    IO.puts("=== Mace.Store Benchmarks (#{@iterations} iterations each) ===\n")
+    prev_path = latest_save()
 
-    bench_put()
-    bench_fetch_hit_self()
-    bench_fetch_miss_cached()
-    bench_fetch_miss_uncached()
-    bench_fetch_hit_tree_walk()
-    bench_delete_kv()
-    bench_delete_all()
-    bench_mixed()
-  end
+    opts =
+      [
+        time: 3,
+        warmup: 1,
+        formatters: [Benchee.Formatters.Console],
+        save: %{path: timestamped_path(), tag: "store"}
+      ]
+      |> then(fn o -> if prev_path, do: Keyword.put(o, :load, prev_path), else: o end)
 
-  # ---- put ----
+    Benchee.run(benchmarks(), opts)
 
-  defp bench_put do
-    clean()
+    File.write!(Path.join(results_dir(), "latest.txt"), timestamped_path())
 
-    warmup(fn -> Mace.Store.put(:app, :key, :val) end)
-
-    {time, _} = :timer.tc(fn ->
-      for _ <- 1..@iterations, do: Mace.Store.put(:app, :key, :val)
-    end)
-
-    clean()
-    report("put (write config)", time)
-  end
-
-  # ---- fetch: hit on self ----
-
-  defp bench_fetch_hit_self do
-    clean()
-    Mace.Store.put(:app, :key, :val)
-
-    warmup(fn -> Mace.Store.fetch(self(), :app, :key) end)
-
-    {time, _} = :timer.tc(fn ->
-      for _ <- 1..@iterations, do: Mace.Store.fetch(self(), :app, :key)
-    end)
-
-    clean()
-    report("fetch (hit, config on self)", time)
-  end
-
-  # ---- fetch: cached miss ----
-
-  defp bench_fetch_miss_cached do
-    clean()
-    pid = spawn(fn -> Process.sleep(:infinity) end)
-
-    # First call walks (empty links), caches the miss
-    Mace.Store.fetch(pid, :app, :miss)
-
-    warmup(fn -> Mace.Store.fetch(pid, :app, :miss) end)
-
-    {time, _} = :timer.tc(fn ->
-      for _ <- 1..@iterations, do: Mace.Store.fetch(pid, :app, :miss)
-    end)
-
-    Process.exit(pid, :kill)
-    clean()
-    report("fetch (miss, cached, ETS lookup)", time)
-  end
-
-  # ---- fetch: uncached miss ----
-
-  defp bench_fetch_miss_uncached do
-    clean()
-    child = Task.async(fn -> Process.sleep(:infinity) end).pid
-
-    {time, _} = :timer.tc(fn ->
-      for i <- 1..@iterations do
-        Mace.Store.fetch(child, :app, :"u#{i}")
-      end
-    end)
-
-    Process.exit(child, :kill)
-    clean()
-    report("fetch (miss, uncached, walks links+monitors)", time)
-  end
-
-  # ---- fetch: hit via tree walk ----
-
-  defp bench_fetch_hit_tree_walk do
-    clean()
-    Mace.Store.put(:app, :key, :val)
-    child = Task.async(fn -> Process.sleep(:infinity) end).pid
-
-    warmup(fn -> Mace.Store.fetch(child, :app, :key) end)
-
-    {time, _} = :timer.tc(fn ->
-      for _ <- 1..@iterations, do: Mace.Store.fetch(child, :app, :key)
-    end)
-
-    Process.exit(child, :kill)
-    clean()
-    report("fetch (hit, via tree walk to parent)", time)
-  end
-
-  # ---- delete kv ----
-
-  defp bench_delete_kv do
-    clean()
-
-    warmup(fn ->
-      Mace.Store.put(:app, :key, :val)
-      Mace.Store.delete(self(), :app, :key)
-    end)
-
-    {time, _} = :timer.tc(fn ->
-      for _ <- 1..@iterations do
-        Mace.Store.put(:app, :key, :val)
-        Mace.Store.delete(self(), :app, :key)
-      end
-    end)
-
-    clean()
-    report("put + delete kv (tombstone)", time)
-  end
-
-  # ---- delete all ----
-
-  defp bench_delete_all do
-    clean()
-
-    warmup(fn ->
-      Mace.Store.put(:app, :key, :val)
-      Mace.Store.delete(self())
-    end)
-
-    {time, _} = :timer.tc(fn ->
-      for _ <- 1..@iterations do
-        Mace.Store.put(:app, :key, :val)
-        Mace.Store.delete(self())
-      end
-    end)
-
-    clean()
-    report("put + delete all (flush cache)", time)
-  end
-
-  # ---- mixed ----
-
-  defp bench_mixed do
-    clean()
-
-    mixed = fn ->
-      Mace.Store.put(:a1, :k1, 1)
-      Mace.Store.put(:a1, :k2, 2)
-      Mace.Store.put(:a2, :k1, 3)
-      Mace.Store.fetch(self(), :a1, :k1)
-      Mace.Store.fetch(self(), :a1, :k2)
-      Mace.Store.fetch(self(), :a2, :k1)
-      Mace.Store.fetch(self(), :no, :k1)
-      Mace.Store.delete(self())
+    if prev_path do
+      IO.puts("\nCompared against: #{Path.basename(prev_path)}")
     end
-
-    warmup(mixed)
-
-    {time, _} = :timer.tc(fn ->
-      for _ <- 1..@iterations, do: mixed.()
-    end)
-
-    clean()
-    report("mixed (3 puts, 4 fetches, 1 delete)", time)
   end
 
-  # ---- helpers ----
-
-  defp clean, do: Mace.Store.delete(self())
-  defp warmup(fun), do: for(_ <- 1..@warmup, do: fun.())
-
-  defp report(name, time_us) do
-    per_ns = time_us / @iterations * 1000
-    IO.puts("#{String.pad_trailing(name, 50)} #{Float.round(time_us / 1000, 1)} ms  |  #{format_ns(per_ns)} / op")
+  defp benchmarks do
+    %{
+      "put (write config)" =>
+        {
+          fn _ -> Mace.Store.put(:app, :key, :val) end,
+          before_each: fn _ -> Mace.Store.delete(self()) end,
+          after_each: fn _ -> Mace.Store.delete(self()) end
+        },
+      "fetch (hit, config on self)" =>
+        {
+          fn _ -> Mace.Store.fetch(self(), :app, :key) end,
+          before_scenario: fn _ -> Mace.Store.put(:app, :key, :val) end,
+          after_scenario: fn _ -> Mace.Store.delete(self()) end
+        },
+      "fetch (miss, cached, ETS lookup)" =>
+        {
+          fn pid -> Mace.Store.fetch(pid, :app, :miss) end,
+          before_scenario: fn _ ->
+            pid = spawn(fn -> Process.sleep(:infinity) end)
+            Mace.Store.fetch(pid, :app, :miss)
+            pid
+          end,
+          after_scenario: fn pid -> Process.exit(pid, :kill) end
+        },
+      "fetch (miss, uncached, walks links+monitors)" =>
+        {
+          fn pid -> Mace.Store.fetch(pid, :app, :miss) end,
+          before_scenario: fn _ ->
+            Task.async(fn -> Process.sleep(:infinity) end).pid
+          end,
+          after_scenario: fn pid -> Process.exit(pid, :kill) end
+        },
+      "fetch (hit, via tree walk to parent)" =>
+        {
+          fn pid -> Mace.Store.fetch(pid, :app, :key) end,
+          before_scenario: fn _ ->
+            Mace.Store.put(:app, :key, :val)
+            Task.async(fn -> Process.sleep(:infinity) end).pid
+          end,
+          after_scenario: fn pid ->
+            Process.exit(pid, :kill)
+            Mace.Store.delete(self())
+          end
+        },
+      "put + delete kv (tombstone)" =>
+        {
+          fn _ ->
+            Mace.Store.put(:app, :key, :val)
+            Mace.Store.delete(self(), :app, :key)
+          end,
+          before_each: fn _ -> Mace.Store.delete(self()) end,
+          after_each: fn _ -> Mace.Store.delete(self()) end
+        },
+      "put + delete all (flush cache)" =>
+        {
+          fn _ ->
+            Mace.Store.put(:app, :key, :val)
+            Mace.Store.delete(self())
+          end,
+          before_each: fn _ -> Mace.Store.delete(self()) end,
+          after_each: fn _ -> Mace.Store.delete(self()) end
+        },
+      "mixed (3 puts, 4 fetches, 1 delete)" =>
+        {
+          fn _ ->
+            Mace.Store.put(:a1, :k1, 1)
+            Mace.Store.put(:a1, :k2, 2)
+            Mace.Store.put(:a2, :k1, 3)
+            Mace.Store.fetch(self(), :a1, :k1)
+            Mace.Store.fetch(self(), :a1, :k2)
+            Mace.Store.fetch(self(), :a2, :k1)
+            Mace.Store.fetch(self(), :no, :k1)
+            Mace.Store.delete(self())
+          end,
+          before_each: fn _ -> Mace.Store.delete(self()) end,
+          after_each: fn _ -> Mace.Store.delete(self()) end
+        }
+    }
   end
 
-  defp format_ns(ns) when ns >= 100_000, do: "#{Float.round(ns / 1000, 1)} µs"
-  defp format_ns(ns), do: "#{Float.round(ns, 0)} ns"
+  defp results_dir, do: Path.join(File.cwd!(), @results_dir)
+
+  defp timestamped_path do
+    File.mkdir_p!(results_dir())
+    ts = NaiveDateTime.local_now() |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_string()
+    Path.join(results_dir(), String.replace(ts, " ", "T") <> ".benchee")
+  end
+
+  defp latest_save do
+    latest_txt = Path.join(results_dir(), "latest.txt")
+
+    if File.exists?(latest_txt) do
+      path = File.read!(latest_txt) |> String.trim()
+
+      if File.exists?(path) do
+        path
+      end
+    end
+  end
 end
 
 StoreBench.run()
-EOF
