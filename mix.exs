@@ -11,7 +11,8 @@ defmodule Mace.MixProject do
       deps: deps(),
       description:
         "Per-test config isolation for ExUnit with transparent Application.get_env interception",
-      package: package()
+      package: package(),
+      docs: docs()
     ]
   end
 
@@ -28,6 +29,7 @@ defmodule Mace.MixProject do
   defp deps do
     [
       {:meck, "~> 0.9"},
+      {:benchee, "~> 1.0", only: :dev, runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
@@ -37,6 +39,14 @@ defmodule Mace.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/pmonson711/mace"},
       source_url: "https://github.com/pmonson711/mace"
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md"],
+      source_url_pattern: "https://github.com/pmonson711/mace/blob/master/%{path}#L%{line}"
     ]
   end
 end

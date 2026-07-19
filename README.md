@@ -18,7 +18,7 @@ Mace handles the interception transparently.
 
 ```elixir
 def deps do
-  [{:mace, "~> 0.1"}]
+  [{:mace, "~> 0.1", only: [:test]}]
 end
 ```
 
@@ -58,7 +58,6 @@ defmodule TimeoutTest do
 
   setup do
     Mace.put_config(:my_app, :timeout, 100)
-    on_exit(fn -> Mace.reset() end)
     :ok
   end
 
@@ -134,7 +133,6 @@ for one describe block and the old client for another:
 describe "with legacy client" do
   setup do
     Mace.put_config(:my_app, :http_client, MyApp.LegacyClient)
-    on_exit(fn -> Mace.reset() end)
   end
 
   test "makes requests" do
@@ -145,7 +143,6 @@ end
 describe "with new client" do
   setup do
     Mace.put_config(:my_app, :http_client, MyApp.NewClient)
-    on_exit(fn -> Mace.reset() end)
   end
 
   test "makes requests" do
@@ -169,7 +166,6 @@ describe "with local disk storage" do
   setup do
     Mace.put_config(:my_app, :storage_backend, MyApp.LocalStorage)
     Mace.put_config(:my_app, :storage_path, "test/fixtures/uploads")
-    on_exit(fn -> Mace.reset() end)
   end
 
   test "stores and retrieves files" do
@@ -182,7 +178,6 @@ describe "with S3 storage" do
   setup do
     Mace.put_config(:my_app, :storage_backend, MyApp.S3Storage)
     Mace.put_config(:my_app, :s3_bucket, "test-bucket")
-    on_exit(fn -> Mace.reset() end)
   end
 
   test "stores and retrieves files" do

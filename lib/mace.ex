@@ -79,6 +79,14 @@ defmodule Mace do
   def get(app, key), do: get_config(app, key)
 
   @doc """
+  Same as `get/2` but logs the full tree walk path to stderr.
+  Use to diagnose why a test isn't seeing expected config.
+  """
+  def debug_get(app, key) do
+    Mace.Store.debug_fetch(owner(), app, key)
+  end
+
+  @doc """
   Clears all config overrides for the current test process.
   Call in `on_exit` to prevent config bleed.
   """
