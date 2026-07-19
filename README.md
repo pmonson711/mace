@@ -66,11 +66,14 @@ defmodule MyLibTest do
 end
 ```
 
-### Well-known exceptions
+### When Application config is the right answer
 
-A handful of widely-used libraries break this rule (Ecto repos, Phoenix
-endpoints, Oban queues). These predate the convention and are not examples to
-follow.
+Using Application config in a library is best avoided, but sometimes it is the
+right answer. Ecto repos, Phoenix endpoints, and Oban queues all read their
+configuration from the host app's Application environment. Each needs config
+to be set once globally rather than threaded through every call site, and each
+is central enough to its application that there's no ambiguity about which app
+owns the config keys.
 
 ### Namespace collision
 
