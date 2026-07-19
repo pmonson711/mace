@@ -14,6 +14,70 @@ process. Any call to `Application.get_env(:my_app, :timeout)` from that process
 Your production code doesn't change. It still calls `Application.get_env`.
 Mace handles the interception transparently.
 
+## Libraries
+
+**Do not call `Application.get_env` from a library.** Config is an application
+concern, not a library concern. Reading config from a library:
+
+- Creates hidden coupling between the host app's config files and the library's
+  behavior
+- Makes it impossible for two dependencies of the same app to use the library
+  with different configuration
+- Breaks when used from escripts or releases where the app isn't started
+
+Accept configuration as function arguments or module options instead:
+
+```elixir
+# Bad: library reads config
+defmodule MyLib do
+  def timeout, do: Application.get_env(:my_lib, :timeout, 5000)
+end
+
+# Good: caller passes config
+defmodule MyLib do
+  def do_thing(opts \\ []) do
+    timeout = Keyword.get(opts, :timeout, 5000)
+  end
+end
+```
+
+### When Mace still helps
+
+If you inherit a library that already reads config, Mace can test it:
+
+```elixir
+defmodule MyLibTest do
+  use ExUnit.Case, async: true
+
+  setup_all do
+    Mace.Mock.install()
+    :ok
+  end
+
+  setup do
+    Mace.set(:my_lib, timeout: 100, retries: 3)
+    on_exit(fn -> Mace.reset() end)
+    :ok
+  end
+
+  test "respects configured timeout" do
+    assert MyLib.do_thing() == :ok
+  end
+end
+```
+
+### Well-known exceptions
+
+A handful of widely-used libraries break this rule (Ecto repos, Phoenix
+endpoints, Oban queues). These predate the convention and are not examples to
+follow.
+
+### Namespace collision
+
+Multiple dependencies can't share the same library's config key space because
+there's only one `:my_lib` app name. This is another reason not to use
+`Application` config in libraries.
+
 ## Install
 
 ```elixir
