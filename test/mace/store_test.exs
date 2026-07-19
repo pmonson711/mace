@@ -109,13 +109,13 @@ defmodule Mace.StoreTest do
     end
 
     test "Mace.delete sets the key to nil" do
-      Mace.set(:my_app, :timeout, 100)
-      Mace.set(:my_app, :debug, true)
+      Mace.put_config(:my_app, :timeout, 100)
+      Mace.put_config(:my_app, :debug, true)
 
       Mace.delete(:my_app, :timeout)
 
-      assert Mace.get(:my_app, :timeout) == {:ok, nil}
-      assert Mace.get(:my_app, :debug) == {:ok, true}
+      assert Mace.get_config(:my_app, :timeout) == {:ok, nil}
+      assert Mace.get_config(:my_app, :debug) == {:ok, true}
     end
   end
 

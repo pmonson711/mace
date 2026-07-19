@@ -10,7 +10,7 @@ defmodule Mace.FormatterTest do
 
   describe "record/2" do
     test "stores diff for a test identified by module + name" do
-      Mace.set(:logger, :truncate, 42)
+      Mace.put_config(:logger, :truncate, 42)
       Mace.Formatter.record(Mace.FormatterTest, :some_test)
 
       diffs = Mace.Formatter.lookup(Mace.FormatterTest, :some_test)
@@ -28,7 +28,7 @@ defmodule Mace.FormatterTest do
 
   describe "clear/2" do
     test "removes recorded diff" do
-      Mace.set(:logger, :truncate, 42)
+      Mace.put_config(:logger, :truncate, 42)
       Mace.Formatter.record(Mace.FormatterTest, :clear_me)
       Mace.Formatter.clear(Mace.FormatterTest, :clear_me)
 
@@ -38,11 +38,11 @@ defmodule Mace.FormatterTest do
 
   describe "cleanup/1" do
     test "records diffs and resets config" do
-      Mace.set(:logger, :truncate, 42)
+      Mace.put_config(:logger, :truncate, 42)
 
       Mace.cleanup(%{module: Mace.FormatterTest, test: :cleanup_test})
 
-      assert Mace.get(:logger, :truncate) == :error
+      assert Mace.get_config(:logger, :truncate) == :error
 
       diffs = Mace.Formatter.lookup(Mace.FormatterTest, :cleanup_test)
       assert diffs =~ "truncate"
