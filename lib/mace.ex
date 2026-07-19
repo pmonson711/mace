@@ -34,6 +34,24 @@ defmodule Mace do
   """
 
   @doc """
+  Enables interception of Application.put_env/put_all_env/delete_env.
+  Writes go to the per-process Mace.Store instead of global application env.
+  """
+  def enable_put_env_intercept do
+    Process.put(:mace_put_env_intercept, true)
+    :ok
+  end
+
+  @doc """
+  Disables interception of Application.put_env/put_all_env/delete_env.
+  Subsequent put_env calls passthrough to the real Application module.
+  """
+  def disable_put_env_intercept do
+    Process.delete(:mace_put_env_intercept)
+    :ok
+  end
+
+  @doc """
   Sets a config override for the current test process.
 
   Subsequent calls to `Application.get_env(app, key)` from the same process
