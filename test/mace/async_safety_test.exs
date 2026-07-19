@@ -2,7 +2,7 @@ defmodule Mace.AsyncSafetyTest do
   use ExUnit.Case, async: true
 
   setup_all do
-    Mace.Mock.install()
+    Mace.Mock.install(put_env: true)
     :ok
   end
 

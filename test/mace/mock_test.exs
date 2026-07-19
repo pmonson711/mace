@@ -3,7 +3,7 @@ defmodule Mace.MockTest do
 
   setup do
     Mace.Store.init()
-    Mace.Mock.install()
+    Mace.Mock.install(put_env: true)
     Application.put_env(:mace, :test_key, :default_value)
     on_exit(fn -> Application.delete_env(:mace, :test_key) end)
     :ok
