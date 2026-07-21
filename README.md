@@ -291,4 +291,4 @@ owns the config keys.
 
 ## Inspiration
 
-While working with (https://fivetro.com/)[Fivetro] on some projects this expand contract need came up and it felt like a great library to share. Check them out if you need Elixir or freight software help!
+While working with [Fivetro](https://fivetro.com) on some projects this expand contract need came up and it felt like a great library to share. Check them out if you need Elixir or freight software help!

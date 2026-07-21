@@ -22,3 +22,4 @@ test_config-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 bench/results/
+.worktrees/

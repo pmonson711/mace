@@ -6,12 +6,16 @@ defmodule Mace.Mock do
   Must be called before tests use Mace.
   Should be called once in test_helper.exs.
   Returns :ok if already installed.
+  Safe to call concurrently — :global lock serializes installers.
   """
   def install do
-    if installed?() do
-      :ok
-    else
-      try do
+    lock_id = {:mace_mock_install, self()}
+    :global.set_lock(lock_id)
+
+    try do
+      if installed?() do
+        :ok
+      else
         :meck.new(Application, [:passthrough, :non_strict])
 
         :meck.expect(Application, :get_env, 2, fn app, key ->
@@ -50,15 +54,11 @@ defmodule Mace.Mock do
             :error -> :meck.passthrough([app, key])
           end
         end)
-      rescue
-        e in ErlangError ->
-          case e.original do
-            {:already_started, _pid} -> :ok
-            _ -> reraise e, __STACKTRACE__
-          end
-      end
 
-      :ok
+        :ok
+      end
+    after
+      :global.del_lock(lock_id)
     end
   end
 
@@ -66,11 +66,19 @@ defmodule Mace.Mock do
   Uninstalls the :meck mock on the Application module.
   """
   def uninstall do
-    if installed?() do
-      :meck.unload(Application)
-    end
+    lock_id = {:mace_mock_uninstall, self()}
 
-    :ok
+    :global.set_lock(lock_id)
+
+    try do
+      if installed?() do
+        :meck.unload(Application)
+      end
+
+      :ok
+    after
+      :global.del_lock(lock_id)
+    end
   end
 
   defp installed? do
